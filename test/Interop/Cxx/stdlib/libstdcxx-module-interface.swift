@@ -5,6 +5,9 @@
 // RUN: %FileCheck %s -check-prefix=CHECK-TO-STRING < %t/interface.swift
 // RUN: %FileCheck %s -check-prefix=CHECK-STRING < %t/interface.swift
 
+// Check that the module std is available when invoked with `-sdk /`.
+// RUN: %target-swift-ide-test -sdk / -resource-dir %swift-path/../../lib/swift -print-module -module-to-print=std -source-filename=x -enable-experimental-cxx-interop -module-cache-path %t/slashes | %FileCheck %s -check-prefix=CHECK-STD
+
 // Running this test with different versions of libstdc++ will result in the decls being printed in different order.
 
 // This test is specific to libstdc++ and only runs on platforms where libstdc++ is used.
