@@ -1984,8 +1984,7 @@ namespace {
         if (auto nom = keyPathTy->getAs<NominalType>()) {
           // AnyKeyPath is <T> rvalue T -> rvalue Any?
           if (nom->isAnyKeyPath()) {
-            valueTy = ProtocolCompositionType::get(cs.getASTContext(), {},
-                                                  /*explicit anyobject*/ false);
+            valueTy = ctx.getAnyExistentialType();
             valueTy = OptionalType::get(valueTy);
             resultIsLValue = false;
             base = cs.coerceToRValue(base);
@@ -2015,8 +2014,7 @@ namespace {
 
           if (keyPathBGT->isPartialKeyPath()) {
             // PartialKeyPath<T> is rvalue T -> rvalue Any
-            valueTy = ProtocolCompositionType::get(cs.getASTContext(), {},
-                                                 /*explicit anyobject*/ false);
+            valueTy = ctx.getAnyExistentialType();
             resultIsLValue = false;
             base = cs.coerceToRValue(base);
           } else {
@@ -6781,10 +6779,13 @@ Expr *ExprRewriter::coerceToType(Expr *expr, Type toType,
             callLocator, {ConstraintLocator::ApplyFunction,
                           ConstraintLocator::ConstructorMember});
 
-        auto overload = solution.getOverloadChoice(cs.getConstraintLocator(
-            ASTNode(), {LocatorPathElt::ImplicitConversion(conversionKind),
-                        ConstraintLocator::ApplyFunction,
-                        ConstraintLocator::ConstructorMember}));
+        ConstraintLocator *baseLoc =
+            cs.getImplicitValueConversionLocator(locator, conversionKind);
+
+        auto overload =
+            solution.getOverloadChoice(solution.getConstraintLocator(
+                baseLoc, {ConstraintLocator::ApplyFunction,
+                          ConstraintLocator::ConstructorMember}));
 
         solution.overloadChoices.insert({memberLoc, overload});
       }
@@ -8152,6 +8153,11 @@ namespace {
       return false;
     }
 
+    /// Check if there are any closures or tap expressions left to process separately.
+    bool hasDelayedTasks() {
+      return !ClosuresToTypeCheck.empty() || !TapsToTypeCheck.empty();
+    }
+
     /// Process delayed closure bodies and `Tap` expressions.
     ///
     /// \returns true if any part of the processing fails.
@@ -8892,6 +8898,9 @@ ExprWalker::rewriteTarget(SolutionApplicationTarget target) {
   } else if (auto patternBinding = target.getAsPatternBinding()) {
     ConstraintSystem &cs = solution.getConstraintSystem();
     for (unsigned index : range(patternBinding->getNumPatternEntries())) {
+      if (patternBinding->isInitializerChecked(index))
+        continue;
+
       // Find the solution application target for this.
       auto knownTarget = *cs.getSolutionApplicationTarget(
           {patternBinding, index});
@@ -8986,15 +8995,19 @@ ExprWalker::rewriteTarget(SolutionApplicationTarget target) {
     // If we're supposed to convert the expression to some particular type,
     // do so now.
     if (shouldCoerceToContextualType()) {
-      resultExpr =
-          Rewriter.coerceToType(resultExpr, solution.simplifyType(convertType),
-                                cs.getConstraintLocator(resultExpr));
+      resultExpr = Rewriter.coerceToType(
+          resultExpr, solution.simplifyType(convertType),
+          cs.getConstraintLocator(resultExpr,
+                                  LocatorPathElt::ContextualType(
+                                      target.getExprContextualTypePurpose())));
     } else if (cs.getType(resultExpr)->hasLValueType() &&
                !target.isDiscardedExpr()) {
       // We referenced an lvalue. Load it.
       resultExpr = Rewriter.coerceToType(
           resultExpr, cs.getType(resultExpr)->getRValueType(),
-          cs.getConstraintLocator(resultExpr));
+          cs.getConstraintLocator(resultExpr,
+                                  LocatorPathElt::ContextualType(
+                                      target.getExprContextualTypePurpose())));
     }
 
     if (!resultExpr)
@@ -9012,8 +9025,31 @@ ExprWalker::rewriteTarget(SolutionApplicationTarget target) {
     result.setExpr(resultExpr);
 
     if (cs.isDebugMode()) {
+      // If target is a multi-statement closure or
+      // a tap expression, expression will not be fully
+      // type checked until these expressions are visited in
+      // processDelayed().
+      bool isPartial = false;
+      resultExpr->forEachChildExpr([&](Expr *child) -> Expr * {
+        if (auto *closure = dyn_cast<ClosureExpr>(child)) {
+          if (!closure->hasSingleExpressionBody()) {
+            isPartial = true;
+            return nullptr;
+          }
+        }
+        if (isa<TapExpr>(child)) {
+          isPartial = true;
+          return nullptr;
+        }
+      return child;
+      });
+      
       auto &log = llvm::errs();
-      log << "---Type-checked expression---\n";
+      if (isPartial) {
+        log << "---Partially type-checked expression---\n";
+      } else {
+        log << "---Type-checked expression---\n";
+      }
       resultExpr->dump(log);
       log << "\n";
     }
@@ -9066,6 +9102,8 @@ Optional<SolutionApplicationTarget> ConstraintSystem::applySolution(
   if (!resultTarget)
     return None;
 
+  auto needsPostProcessing = walker.hasDelayedTasks();
+  
   // Visit closures that have non-single expression bodies, tap expressions,
   // and possibly other types of AST nodes which could only be processed
   // after contextual expression.
@@ -9074,7 +9112,19 @@ Optional<SolutionApplicationTarget> ConstraintSystem::applySolution(
   // If any of them failed to type check, bail.
   if (hadError)
     return None;
-
+  
+  if (isDebugMode()) {
+    // If we had partially type-checked expressions, lets print
+    // fully type-checked target after processDelayed is done.
+    auto node = target.getAsASTNode();
+    if (node && needsPostProcessing) {
+      auto &log = llvm::errs();
+      log << "---Fully type-checked target---\n";
+      node.dump(log);
+      log << "\n";
+    }
+  }
+  
   rewriter.finalize();
 
   return resultTarget;

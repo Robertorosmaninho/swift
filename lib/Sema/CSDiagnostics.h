@@ -1806,8 +1806,7 @@ public:
                                       ConstraintLocator *locator)
       : ContextualFailure(solution, type, protocolType, locator),
         Context(context) {
-    assert(protocolType->is<ProtocolType>() ||
-           protocolType->is<ProtocolCompositionType>());
+    assert(protocolType->isExistentialType());
   }
 
   bool diagnoseAsError() override;
@@ -1997,6 +1996,10 @@ public:
   /// Are currently impossible to fix correctly,
   /// so we have to attend to that in diagnostics.
   bool diagnoseMisplacedMissingArgument() const;
+
+  /// Diagnose an attempt to pass a trailing closure to a Regex initializer
+  /// without importing RegexBuilder.
+  bool diagnoseAttemptedRegexBuilder() const;
 
 protected:
   /// \returns The position of the argument being diagnosed, starting at 1.
@@ -2762,6 +2765,41 @@ private:
   /// if result of the call is passed as an argument to another call
   /// that requires such opening.
   bool fixItRequiresParens() const;
+};
+
+/// Diagnose situations where pattern variables with the same name
+/// have conflicting types:
+///
+/// \code
+/// enum E {
+/// case a(Int)
+/// case b(String)
+/// }
+///
+/// func test(e: E) {
+///   switch e {
+///    case .a(let x), .b(let x): ...
+///   }
+/// }
+/// \endcode
+///
+/// In this example `x` is bound to `Int` and `String` at the same
+/// time which is incorrect.
+class ConflictingPatternVariables final : public FailureDiagnostic {
+  Type ExpectedType;
+  SmallVector<VarDecl *, 4> Vars;
+
+public:
+  ConflictingPatternVariables(const Solution &solution, Type expectedTy,
+                              ArrayRef<VarDecl *> conflicts,
+                              ConstraintLocator *locator)
+      : FailureDiagnostic(solution, locator),
+        ExpectedType(resolveType(expectedTy)),
+        Vars(conflicts.begin(), conflicts.end()) {
+    assert(!Vars.empty());
+  }
+
+  bool diagnoseAsError() override;
 };
 
 } // end namespace constraints

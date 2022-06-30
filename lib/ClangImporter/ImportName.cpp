@@ -869,16 +869,18 @@ static bool omitNeedlessWordsInFunctionName(
     StringRef argumentName;
     if (i < argumentNames.size())
       argumentName = argumentNames[i];
-    bool hasDefaultArg =
+    auto argumentAttrs =
         ClangImporter::Implementation::inferDefaultArgument(
             param->getType(),
             getParamOptionality(param, !nonNullArgs.empty() && nonNullArgs[i]),
             nameImporter.getIdentifier(baseName), argumentName, i == 0,
-            isLastParameter, nameImporter) != DefaultArgumentKind::None;
+            isLastParameter, nameImporter);
 
-    paramTypes.push_back(getClangTypeNameForOmission(clangCtx,
-                                                     param->getOriginalType())
-                            .withDefaultArgument(hasDefaultArg));
+    paramTypes.push_back(
+        (argumentAttrs.hasAlternateCXXOptionsEnumName()
+             ? OmissionTypeName(argumentAttrs.getAlternateCXXOptionsEnumName())
+             : getClangTypeNameForOmission(clangCtx, param->getOriginalType()))
+            .withDefaultArgument(argumentAttrs.hasDefaultArg()));
   }
 
   // Find the property names.
@@ -1852,6 +1854,7 @@ ImportedName NameImporter::importNameImpl(const clang::NamedDecl *D,
     case clang::OverloadedOperatorKind::OO_LessLess:
     case clang::OverloadedOperatorKind::OO_GreaterGreater:
     case clang::OverloadedOperatorKind::OO_EqualEqual:
+    case clang::OverloadedOperatorKind::OO_PlusPlus:
     case clang::OverloadedOperatorKind::OO_ExclaimEqual:
     case clang::OverloadedOperatorKind::OO_LessEqual:
     case clang::OverloadedOperatorKind::OO_GreaterEqual:

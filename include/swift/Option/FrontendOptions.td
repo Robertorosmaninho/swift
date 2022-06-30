@@ -505,6 +505,10 @@ def function_sections: Flag<["-"], "function-sections">,
   Flags<[FrontendOption, NoInteractiveOption]>,
   HelpText<"Emit functions to separate sections.">;
 
+def enable_single_module_llvm_emission: Flag<["-"], "enable-single-module-llvm-emission">,
+  Flags<[FrontendOption, NoInteractiveOption]>,
+  HelpText<"Emit LLVM IR into a single LLVM module in multithreaded mode.">;
+
 def stack_promotion_checks : Flag<["-"], "emit-stack-promotion-checks">,
   HelpText<"Emit runtime checks for correct stack promotion of objects.">;
 
@@ -636,6 +640,10 @@ def conditional_runtime_records : Flag<["-"], "conditional-runtime-records">,
 def disable_preallocated_instantiation_caches : Flag<["-"], "disable-preallocated-instantiation-caches">,
   Flags<[FrontendOption, NoInteractiveOption, HelpHidden]>,
   HelpText<"Avoid preallocating metadata instantiation caches in globals">;
+
+def disable_readonly_static_objects : Flag<["-"], "disable-readonly-static-objects">,
+  Flags<[FrontendOption, NoInteractiveOption, HelpHidden]>,
+  HelpText<"Avoid allocating static objects in a read-only data section">;
 
 def trap_function
   : Separate<["-"], "trap-function">, MetaVarName<"<name>">,
@@ -830,11 +838,6 @@ def emit_sorted_sil : Flag<["-"], "emit-sorted-sil">,
 
 def emit_syntax : Flag<["-"], "emit-syntax">,
   HelpText<"Parse input file(s) and emit the Syntax tree(s) as JSON">, ModeOpt;
-
-def enable_cxx_interop :
-  Flag<["-"], "enable-cxx-interop">,
-  HelpText<"Alias for -enable-experimental-cxx-interop">,
-  Flags<[FrontendOption, HelpHidden]>;
 
 def cxx_interop_getters_setters_as_properties :
   Flag<["-"], "cxx-interop-getters-setters-as-properties">,
@@ -1061,5 +1064,9 @@ def clang_header_expose_public_decls:
   Flag<["-"], "clang-header-expose-public-decls">,
   HelpText<"Expose all public declarations in the generated clang header">,
   Flags<[FrontendOption, HelpHidden]>;
+  
+def enable_ad_hoc_availability :
+  Flag<["-"], "enable-ad-hoc-availability">,
+  HelpText<"Enable experimental support for ad hoc availability">;
 
 } // end let Flags = [FrontendOption, NoDriverOption, HelpHidden]

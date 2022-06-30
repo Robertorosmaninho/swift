@@ -2875,6 +2875,7 @@ public:
     }
 
     TypeChecker::checkDeclAttributes(FD);
+    TypeChecker::checkDistributedFunc(FD);
 
     if (!checkOverrides(FD)) {
       // If a method has an 'override' keyword but does not
@@ -2972,8 +2973,9 @@ public:
       if (isRepresentableInObjC(FD, reason, asyncConvention, errorConvention)) {
         if (FD->hasAsync()) {
           FD->setForeignAsyncConvention(*asyncConvention);
-          getASTContext().Diags.diagnose(CDeclAttr->getLocation(),
-                                         diag::cdecl_async);
+          getASTContext().Diags.diagnose(
+              CDeclAttr->getLocation(), diag::attr_decl_async,
+              CDeclAttr->getAttrName(), FD->getDescriptiveKind());
         } else if (FD->hasThrows()) {
           FD->setForeignErrorConvention(*errorConvention);
           getASTContext().Diags.diagnose(CDeclAttr->getLocation(),

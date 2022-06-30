@@ -288,8 +288,11 @@ FIXIT(insert_closure_return_type_placeholder,
 NOTE(use_of_anon_closure_param,none,
      "anonymous closure parameter %0 is used here", (Identifier))
 
-ERROR(incorrect_explicit_closure_result,none,
+ERROR(incorrect_explicit_closure_result_vs_contextual_type,none,
       "declared closure result %0 is incompatible with contextual type %1",
+      (Type, Type))
+ERROR(incorrect_explicit_closure_result_vs_return_type,none,
+      "declared closure result %0 is incompatible with return type %1",
       (Type, Type))
 
 ERROR(unsupported_closure_attr,none,
@@ -1408,8 +1411,6 @@ ERROR(transparent_in_protocols_not_supported,none,
 ERROR(transparent_in_classes_not_supported,none,
       "'@_transparent' attribute is not supported on declarations within classes", ())
 
-ERROR(invalid_iboutlet,none,
-      "only instance properties can be declared @IBOutlet", ())
 ERROR(iboutlet_nonobjc_class,none,
       "@IBOutlet property cannot %select{have|be an array of}0 "
       "non-'@objc' class type %1", (bool, Type))
@@ -1431,8 +1432,8 @@ NOTE(note_make_implicitly_unwrapped_optional,none,
 ERROR(invalid_ibdesignable_extension,none,
       "@IBDesignable can only be applied to classes and extensions "
       "of classes", ())
-ERROR(invalid_ibinspectable,none,
-      "only instance properties can be declared @%0", (StringRef))
+ERROR(attr_must_be_used_on_class_instance,none,
+      "only class instance properties can be declared @%0", (StringRef))
 ERROR(invalid_ibaction_decl,none,
       "only instance methods can be declared @%0", (StringRef))
 ERROR(invalid_ibaction_result,none,
@@ -1453,6 +1454,8 @@ NOTE(fixit_rename_in_swift,none,
      "change Swift name to %0", (DeclName))
 NOTE(fixit_rename_in_objc,none,
      "change Objective-C selector to %0", (ObjCSelector))
+NOTE(remove_async_add_task,none,
+     "remove 'async' and wrap in 'Task' to use concurrency in %0", (DeclName))
 ERROR(no_objc_tagged_pointer_not_class_protocol,none,
       "@unsafe_no_objc_tagged_pointer can only be applied to class protocols",
       ())
@@ -1466,11 +1469,12 @@ ERROR(cdecl_empty_name,none,
       "@_cdecl symbol name cannot be empty", ())
 ERROR(cdecl_throws,none,
       "raising errors from @_cdecl functions is not supported", ())
-ERROR(cdecl_async,none,
-      "@_cdecl functions cannot be asynchronous", ())
 
 ERROR(attr_methods_only,none,
       "only methods can be declared %0", (DeclAttribute))
+ERROR(attr_decl_async,none,
+      "@%0 %1 cannot be asynchronous", (StringRef, DescriptiveDeclKind))
+
 ERROR(access_control_in_protocol,none,
       "%0 modifier cannot be used in protocols", (DeclAttribute))
 NOTE(access_control_in_protocol_detail,none,
@@ -1526,6 +1530,9 @@ WARNING(access_control_non_objc_open_member,none,
 
 ERROR(invalid_decl_attribute,none,
       "'%0' attribute cannot be applied to this declaration", (DeclAttribute))
+ERROR(attr_invalid_on_decl_kind,none,
+      "'%0' attribute cannot be applied to %1 declarations",
+      (DeclAttribute, DescriptiveDeclKind))
 ERROR(invalid_decl_modifier,none,
       "%0 modifier cannot be applied to this declaration", (DeclAttribute))
 ERROR(attribute_does_not_apply_to_type,none,
@@ -4488,8 +4495,8 @@ ERROR(actor_inheritance,none,
       (bool))
 
 ERROR(actor_protocol_illegal_inheritance,none,
-      "non-actor type %0 cannot conform to the 'Actor' protocol",
-      (DeclName))
+      "non-actor type %0 cannot conform to the %1 protocol",
+      (DeclName, DeclName))
 ERROR(distributed_actor_conformance_missing_system_type,none,
       "distributed actor %0 does not declare ActorSystem it can be used with.",
       (DeclName))
@@ -4562,6 +4569,9 @@ ERROR(effectful_keypath_component,none,
 ERROR(local_function_executed_concurrently,none,
       "concurrently-executed %0 %1 must be marked as '@Sendable'",
       (DescriptiveDeclKind, DeclName))
+ERROR(sendable_isolated_sync_function,none,
+      "%0 synchronous %1 %2 cannot be marked as '@Sendable'",
+      (ActorIsolation, DescriptiveDeclKind, DeclName))
 ERROR(concurrent_access_of_local_capture,none,
       "%select{mutation of|reference to}0 captured %1 %2 in "
       "concurrently-executing code",
@@ -4781,6 +4791,9 @@ ERROR(distributed_actor_func_static,none,
 ERROR(distributed_actor_func_not_in_distributed_actor,none,
       "'distributed' method can only be declared within 'distributed actor'",
       ())
+ERROR(distributed_method_requirement_must_be_async_throws,none, // FIXME(distributed): this is an implementation limitation we should lift
+      "'distributed' protocol requirement %0 must currently be declared explicitly 'async throws'",
+      (DeclName))
 ERROR(distributed_actor_user_defined_special_property,none,
       "property %0 cannot be defined explicitly, as it conflicts with "
       "distributed actor synthesized stored property",
@@ -4794,6 +4807,9 @@ ERROR(distributed_property_cannot_be_static,none,
 ERROR(distributed_property_can_only_be_computed,none,
       "%0 %1 cannot be 'distributed', only computed properties can",
       (DescriptiveDeclKind, DeclName))
+ERROR(distributed_property_accessor_only_get_can_be_distributed,none,
+      "only 'get' accessors may be 'distributed'",
+      ())
 NOTE(distributed_actor_isolated_property,none,
       "access to %0 %1 is only permitted within distributed actor %2",
       (DescriptiveDeclKind, DeclName, DeclName))
@@ -4853,6 +4869,9 @@ ERROR(string_processing_lib_missing,none,
 ERROR(regex_capture_types_failed_to_decode,none,
       "failed to decode capture types for regular expression literal; this may "
       "be a compiler bug", ())
+
+ERROR(must_import_regex_builder_module,none,
+      "regex builder requires the 'RegexBuilder' module be imported'", ())
 
 //------------------------------------------------------------------------------
 // MARK: Type Check Types
@@ -6172,6 +6191,10 @@ ERROR(result_builder_requires_explicit_var_initialization,none,
 ERROR(cannot_declare_computed_var_in_result_builder,none,
       "cannot declare local %select{lazy|wrapped|computed|observed}0 variable "
       "in result builder", (unsigned))
+ERROR(cannot_convert_result_builder_result_to_return_type,none,
+      "cannot convert result builder result type %0 to return type %1",
+      (Type,Type))
+
 
 //------------------------------------------------------------------------------
 // MARK: Tuple Shuffle Diagnostics

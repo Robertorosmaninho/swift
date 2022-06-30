@@ -29,13 +29,14 @@
 #include "swift/Basic/STLExtras.h"
 #include "swift/IRGen/Linking.h"
 #include "swift/SIL/ApplySite.h"
+#include "swift/SIL/BasicBlockDatastructures.h"
 #include "swift/SIL/Dominance.h"
 #include "swift/SIL/InstructionUtils.h"
 #include "swift/SIL/MemAccessUtils.h"
 #include "swift/SIL/PrettyStackTrace.h"
-#include "swift/SIL/BasicBlockDatastructures.h"
 #include "swift/SIL/SILDebugScope.h"
 #include "swift/SIL/SILDeclRef.h"
+#include "swift/SIL/SILInstruction.h"
 #include "swift/SIL/SILLinkage.h"
 #include "swift/SIL/SILModule.h"
 #include "swift/SIL/SILType.h"
@@ -1189,6 +1190,16 @@ public:
   }
   void visitMarkMustCheckInst(MarkMustCheckInst *i) {
     llvm_unreachable("Invalid in Lowered SIL");
+  }
+  void visitCopyableToMoveOnlyWrapperValueInst(
+      CopyableToMoveOnlyWrapperValueInst *i) {
+    auto e = getLoweredExplosion(i->getOperand());
+    setLoweredExplosion(i, e);
+  }
+  void visitMoveOnlyWrapperToCopyableValueInst(
+      MoveOnlyWrapperToCopyableValueInst *i) {
+    auto e = getLoweredExplosion(i->getOperand());
+    setLoweredExplosion(i, e);
   }
   void visitReleaseValueInst(ReleaseValueInst *i);
   void visitReleaseValueAddrInst(ReleaseValueAddrInst *i);
@@ -2754,7 +2765,7 @@ void IRGenSILFunction::visitGlobalValueInst(GlobalValueInst *i) {
                                                 NotForDefinition).getAddress();
   // We don't need to initialize the global object if it's never used for
   // something which can access the object header.
-  if (!hasOnlyProjections(i)) {
+  if (!hasOnlyProjections(i) && !IGM.canMakeStaticObjectsReadOnly()) {
     auto ClassType = loweredTy.getASTType();
     llvm::Value *Metadata =
       emitClassHeapMetadataRef(*this, ClassType, MetadataValueType::TypeMetadata,
@@ -7088,8 +7099,11 @@ void IRGenModule::emitSILStaticInitializers() {
            "cannot emit a static initializer for dynamically-sized global");
 #endif
 
+    LinkEntity entity = LinkEntity::forSILGlobalVariable(&Global, *this);
+    std::string name = entity.mangleAsString();
+
     auto *IRGlobal =
-        Module.getGlobalVariable(Global.getName(), true /* = AllowLocal */);
+        Module.getGlobalVariable(name, true /* = AllowLocal */);
 
     // A check for multi-threaded compilation: Is this the llvm module where the
     // global is defined and not only referenced (or not referenced at all).
@@ -7099,10 +7113,14 @@ void IRGenModule::emitSILStaticInitializers() {
     if (auto *OI = dyn_cast<ObjectInst>(InitValue)) {
       StructLayout *Layout = StaticObjectLayouts[&Global].get();
       llvm::Constant *InitVal = emitConstantObject(*this, OI, Layout);
-      auto *ContainerTy = cast<llvm::StructType>(IRGlobal->getValueType());
-      auto *zero = llvm::ConstantAggregateZero::get(ContainerTy->getElementType(0));
-      IRGlobal->setInitializer(llvm::ConstantStruct::get(ContainerTy,
-                                                         {zero , InitVal}));
+      if (canMakeStaticObjectsReadOnly()) {
+        IRGlobal->setInitializer(InitVal);
+      } else {
+        auto *ContainerTy = cast<llvm::StructType>(IRGlobal->getValueType());
+        auto *zero = llvm::ConstantAggregateZero::get(ContainerTy->getElementType(0));
+        IRGlobal->setInitializer(llvm::ConstantStruct::get(ContainerTy,
+                                                           {zero , InitVal}));
+      }
       continue;
     }
 

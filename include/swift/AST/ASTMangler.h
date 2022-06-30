@@ -197,7 +197,7 @@ public:
                                              Type GlobalActorBound,
                                              ModuleDecl *Module);
 
-  std::string mangleDistributedThunk(const FuncDecl *thunk);
+  std::string mangleDistributedThunk(const AbstractFunctionDecl *thunk);
 
   /// Mangle a completion handler block implementation function, used for importing ObjC
   /// APIs as async.
@@ -297,7 +297,8 @@ public:
 
   std::string mangleTypeAsContextUSR(const NominalTypeDecl *type);
 
-  std::string mangleAnyDecl(const ValueDecl *Decl, bool prefix);
+  std::string mangleAnyDecl(const ValueDecl *Decl, bool prefix,
+                            bool respectOriginallyDefinedIn = false);
   std::string mangleDeclAsUSR(const ValueDecl *Decl, StringRef USRPrefix);
 
   std::string mangleAccessorEntityAsUSR(AccessorKind kind,

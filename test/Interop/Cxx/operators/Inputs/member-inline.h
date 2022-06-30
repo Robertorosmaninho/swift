@@ -19,6 +19,11 @@ struct LoadableIntWrapper {
   int operator()(int x, int y) {
     return value + x * y;
   }
+
+  LoadableIntWrapper &operator++() {
+    value++;
+    return *this;
+  }
 };
 
 struct LoadableBoolWrapper {
@@ -43,6 +48,34 @@ struct AddressOnlyIntWrapper {
   int operator()(int x, int y) {
     return value + x * y;
   }
+
+  AddressOnlyIntWrapper operator-(AddressOnlyIntWrapper rhs) const {
+    return AddressOnlyIntWrapper(value - rhs.value);
+  }
+  AddressOnlyIntWrapper &operator++() {
+    value++;
+    return *this;
+  }
+  AddressOnlyIntWrapper operator++(int) {
+    // This shouldn't be called, since we only support pre-increment operators.
+    return AddressOnlyIntWrapper(-777);
+  }
+};
+
+struct HasPostIncrementOperator {
+  HasPostIncrementOperator operator++(int) {
+    return HasPostIncrementOperator();
+  }
+};
+
+struct HasPreIncrementOperatorWithAnotherReturnType {
+  int value = 0;
+  const int &operator++() { return ++value; }
+};
+
+struct HasPreIncrementOperatorWithVoidReturnType {
+  int value = 0;
+  void operator++() { ++value; }
 };
 
 struct HasDeletedOperator {
@@ -273,5 +306,26 @@ struct DerivedFromAddressOnlyIntWrapper : AddressOnlyIntWrapper {
 struct DerivedFromReadWriteIntArray : ReadWriteIntArray {};
 
 struct DerivedFromNonTrivialArrayByVal : NonTrivialArrayByVal {};
+
+struct Iterator {
+private:
+  int value = 123;
+public:
+  int &operator*() { return value; }
+};
+
+struct ConstIterator {
+private:
+  int value = 234;
+public:
+  const int &operator*() const { return value; }
+};
+
+struct ConstIteratorByVal {
+private:
+  int value = 456;
+public:
+  int operator*() const { return value; }
+};
 
 #endif

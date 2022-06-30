@@ -14,32 +14,32 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "../CompatibilityOverride/CompatibilityOverride.h"
+#include "ImageInspection.h"
+#include "Private.h"
+#include "swift/ABI/TypeIdentity.h"
 #include "swift/Basic/Lazy.h"
 #include "swift/Demangling/Demangler.h"
 #include "swift/Demangling/TypeDecoder.h"
 #include "swift/Reflection/Records.h"
-#include "swift/ABI/TypeIdentity.h"
 #include "swift/Runtime/Casting.h"
 #include "swift/Runtime/Concurrent.h"
 #include "swift/Runtime/Debug.h"
 #include "swift/Runtime/HeapObject.h"
 #include "swift/Runtime/Metadata.h"
-#include "swift/Runtime/Mutex.h"
 #include "swift/Strings.h"
+#include "swift/Threading/Mutex.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringExtras.h"
-#include "Private.h"
-#include "../CompatibilityOverride/CompatibilityOverride.h"
-#include "ImageInspection.h"
+#include <cstring>
 #include <functional>
-#include <vector>
 #include <list>
 #include <new>
-#include <cstring>
+#include <vector>
 
 using namespace swift;
 using namespace Demangle;
@@ -2280,7 +2280,7 @@ static void installGetClassHook() {
 unsigned SubstGenericParametersFromMetadata::
 buildDescriptorPath(const ContextDescriptor *context,
                     Demangler &borrowFrom) const {
-  assert(sourceIsMetadata);
+  assert(sourceKind == SourceKind::Metadata);
 
   // Terminating condition: we don't have a context.
   if (!context)
@@ -2371,19 +2371,58 @@ buildEnvironmentPath(
   return totalKeyParamCount;
 }
 
+unsigned SubstGenericParametersFromMetadata::buildShapePath(
+    const TargetExtendedExistentialTypeShape<InProcess> *shape) const {
+  unsigned totalParamCount = 0;
+
+  auto genSig = shape->getGeneralizationSignature();
+  if (!genSig.getParams().empty()) {
+    totalParamCount += genSig.getParams().size();
+    descriptorPath.push_back(PathElement{genSig.getParams(),
+                                         totalParamCount,
+                                         /*numKeyGenericParamsInParent*/ 0,
+                                         (unsigned)genSig.getParams().size(),
+                                         /*hasNonKeyGenericParams*/ false});
+  }
+
+  const unsigned genSigParamCount = genSig.getParams().size();
+  auto reqSig = shape->getRequirementSignature();
+  assert(reqSig.getParams().size() > genSig.getParams().size());
+  {
+    auto remainingParams = reqSig.getParams().drop_front(genSig.getParams().size());
+    totalParamCount += remainingParams.size();
+    descriptorPath.push_back(PathElement{remainingParams,
+                                         totalParamCount,
+                                         genSigParamCount,
+                                         (unsigned)remainingParams.size(),
+                                         /*hasNonKeyGenericParams*/ false});
+  }
+
+  // All parameters in this signature are key parameters.
+  return totalParamCount;
+}
+
 void SubstGenericParametersFromMetadata::setup() const {
   if (!descriptorPath.empty())
     return;
 
-  if (sourceIsMetadata && baseContext) {
+  switch (sourceKind) {
+  case SourceKind::Metadata: {
+    assert(baseContext);
     DemanglerForRuntimeTypeResolution<StackAllocatedDemangler<2048>> demangler;
     numKeyGenericParameters = buildDescriptorPath(baseContext, demangler);
     return;
   }
-
-  if (!sourceIsMetadata && environment) {
+  case SourceKind::Environment: {
+    assert(environment);
     numKeyGenericParameters = buildEnvironmentPath(environment);
     return;
+  }
+  case SourceKind::Shape: {
+    assert(shape);
+    numKeyGenericParameters = buildShapePath(shape);
+    return;
+  }
   }
 }
 

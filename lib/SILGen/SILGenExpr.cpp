@@ -2545,6 +2545,7 @@ RValue RValueEmitter::visitAbstractClosureExpr(AbstractClosureExpr *e,
   if (auto contextOrigType = C.getAbstractionPattern()) {
     SGF.SGM.Types.setAbstractionPattern(e, *contextOrigType);
   }
+  SGF.SGM.Types.setCaptureTypeExpansionContext(SILDeclRef(e), SGF.SGM.M);
   
   // Emit the closure body.
   SGF.SGM.emitClosure(e);
@@ -3506,6 +3507,14 @@ getIdForKeyPathComponentComputedProperty(SILGenModule &SGM,
   case AccessStrategy::DispatchToAccessor: {
     // Identify the property by its vtable or wtable slot.
     return SGM.getAccessorDeclRef(getRepresentativeAccessorForKeyPath(storage));
+  }
+
+  case AccessStrategy::DispatchToDistributedThunk: {
+    auto thunkRef = SILDeclRef(cast<VarDecl>(storage)->getDistributedThunk(),
+                               SILDeclRef::Kind::Func,
+                               /*isForeign=*/false,
+                               /*isDistributed=*/true);
+    return SGM.getFunction(thunkRef, NotForDefinition);
   }
   }
   llvm_unreachable("unhandled access strategy");

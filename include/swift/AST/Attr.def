@@ -85,6 +85,8 @@ TYPE_ATTR(yields)
 TYPE_ATTR(yield_once)
 TYPE_ATTR(yield_many)
 TYPE_ATTR(captures_generics)
+// Used at the SIL level to mark a type as moveOnly.
+TYPE_ATTR(moveOnly)
 
 // SIL metatype attributes.
 TYPE_ATTR(thin)
@@ -662,7 +664,7 @@ SIMPLE_DECL_ATTR(_inheritActorContext, InheritActorContext,
 // 117 was 'spawn' and is now unused
 
 CONTEXTUAL_SIMPLE_DECL_ATTR(distributed, DistributedActor,
-  DeclModifier | OnClass | OnFunc | OnVar |
+  DeclModifier | OnClass | OnFunc | OnAccessor | OnVar |
   ABIBreakingToAdd | ABIBreakingToRemove |
   APIBreakingToAdd | APIBreakingToRemove,
   118)

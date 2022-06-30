@@ -25,11 +25,15 @@ protocol DistProtocol: DistributedActor {
   // expected-note@-3{{distributed actor-isolated instance method 'local()' declared here}}
   // expected-note@-4{{distributed actor-isolated instance method 'local()' declared here}}
 
-  distributed func dist() -> String
-  distributed func dist(string: String) -> String
+  distributed func dist() -> String // FIXME(distributed): rdar://95949498 currently we are limited to explicitly 'async throws' protocol requirements that are distributed funcs
+  // expected-error@-1{{'distributed' protocol requirement 'dist()' must currently be declared explicitly 'async throws'}}
+  distributed func dist(string: String) -> String // FIXME(distributed): rdar://95949498 currently we are limited to explicitly 'async throws' protocol requirements that are distributed funcs
+  // expected-error@-1{{'distributed' protocol requirement 'dist(string:)' must currently be declared explicitly 'async throws'}}
 
-  distributed func distAsync() async -> String
-  distributed func distThrows() throws -> String
+  distributed func distAsync() async -> String // FIXME(distributed): rdar://95949498 currently we are limited to explicitly 'async throws' protocol requirements that are distributed funcs
+  // expected-error@-1{{'distributed' protocol requirement 'distAsync()' must currently be declared explicitly 'async throws'}}
+  distributed func distThrows() throws -> String // FIXME(distributed): rdar://95949498 currently we are limited to explicitly 'async throws' protocol requirements that are distributed funcs
+  // expected-error@-1{{'distributed' protocol requirement 'distThrows()' must currently be declared explicitly 'async throws'}}
   distributed func distAsyncThrows() async throws -> String
 }
 
@@ -100,8 +104,9 @@ protocol StrictlyLocal {
 
   func localThrows() throws
   // expected-note@-1 2{{mark the protocol requirement 'localThrows()' 'async' to allow actor-isolated conformances}}{{22-22=async }}
-  
-  // TODO: localAsync
+
+  func localAsync() async
+  // expected-note@-1 2{{mark the protocol requirement 'localAsync()' 'throws' to allow actor-isolated conformances}}
 }
 
 distributed actor Nope1_StrictlyLocal: StrictlyLocal {
@@ -111,24 +116,29 @@ distributed actor Nope1_StrictlyLocal: StrictlyLocal {
   func localThrows() throws {}
   // expected-error@-1{{distributed actor-isolated instance method 'localThrows()' cannot be used to satisfy nonisolated protocol requirement}}
   // expected-note@-2{{add 'nonisolated' to 'localThrows()' to make this instance method not isolated to the actor}}
+  func localAsync() async {}
+  // expected-error@-1{{distributed actor-isolated instance method 'localAsync()' cannot be used to satisfy nonisolated protocol requirement}}
+  // expected-note@-2{{add 'nonisolated' to 'localAsync()' to make this instance method not isolated to the actor}}
 }
 distributed actor Nope2_StrictlyLocal: StrictlyLocal {
   distributed func local() {}
   // expected-error@-1{{actor-isolated distributed instance method 'local()' cannot be used to satisfy nonisolated protocol requirement}}
   distributed func localThrows() throws {}
   // expected-error@-1{{actor-isolated distributed instance method 'localThrows()' cannot be used to satisfy nonisolated protocol requirement}}
+  distributed func localAsync() async {}
+  // expected-error@-1{{actor-isolated distributed instance method 'localAsync()' cannot be used to satisfy nonisolated protocol requirement}}
 }
 distributed actor OK_StrictlyLocal: StrictlyLocal {
   nonisolated func local() {}
   nonisolated func localThrows() throws {}
+  nonisolated func localAsync() async {}
 }
 
 protocol Server {
-  func send<Message: Codable>(message: Message) async throws -> String
+  func send<Message: Codable & Sendable>(message: Message) async throws -> String
 }
 actor MyServer : Server {
-  // expected-note@+1{{consider making generic parameter 'Message' conform to the 'Sendable' protocol}} {{29-29=, Sendable}}
-  func send<Message: Codable>(message: Message) throws -> String { "" }  // expected-warning{{non-sendable type 'Message' in parameter of actor-isolated instance method 'send(message:)' satisfying protocol requirement cannot cross actor boundary}}
+  func send<Message: Codable & Sendable>(message: Message) throws -> String { "" } // OK
 }
 
 protocol AsyncThrowsAll {
@@ -140,8 +150,14 @@ actor LocalOK_AsyncThrowsAll: AsyncThrowsAll {
   func maybe(param: String, int: Int) async throws -> Int { 1111 }
 }
 
-actor LocalOK_Implicitly_AsyncThrowsAll: AsyncThrowsAll {
+actor LocalOK_ImplicitlyThrows_AsyncThrowsAll: AsyncThrowsAll {
+  func maybe(param: String, int: Int) async -> Int { 1111 }
+}
+actor LocalOK_ImplicitlyAsync_AsyncThrowsAll: AsyncThrowsAll {
   func maybe(param: String, int: Int) throws -> Int { 1111 }
+}
+actor LocalOK_ImplicitlyThrowsAsync_AsyncThrowsAll: AsyncThrowsAll {
+  func maybe(param: String, int: Int) -> Int { 1111 }
 }
 
 distributed actor Nope1_AsyncThrowsAll: AsyncThrowsAll {
@@ -170,12 +186,80 @@ func testAsyncThrowsAll(p: AsyncThrowsAll,
   _ = try await pp.maybe(param: "", int: 0)
 }
 
+// ==== -----------------------------------------------------------------------
+// MARK: Distributed actor protocols can have non-dist requirements
+
+protocol TerminationWatchingA {
+  func terminated(a: String) async
+  // expected-note@-1{{mark the protocol requirement 'terminated(a:)' 'throws' to allow actor-isolated conformances}}
+}
+
+protocol TerminationWatchingDA: DistributedActor {
+  func terminated(da: String) async // expected-note 3 {{distributed actor-isolated instance method 'terminated(da:)' declared here}}
+}
+
+actor A_TerminationWatchingA: TerminationWatchingA {
+  func terminated(a: String) { } // ok, since: actor -> implicitly async
+}
+func test_watching_A(a: A_TerminationWatchingA) async throws {
+  await a.terminated(a: "normal")
+}
+
+distributed actor DA_TerminationWatchingA: TerminationWatchingA {
+  func terminated(a: String) { }
+  // expected-error@-1{{distributed actor-isolated instance method 'terminated(a:)' cannot be used to satisfy nonisolated protocol requirement}}
+  // expected-note@-2{{add 'nonisolated' to 'terminated(a:)' to make this instance method not isolated to the actor}}
+}
+
+distributed actor DA_TerminationWatchingDA: TerminationWatchingDA {
+  distributed func test() {}
+  func terminated(da: String) { }
+  // expected-note@-1{{distributed actor-isolated instance method 'terminated(da:)' declared here}}
+}
+
+func test_watchingDA(da: DA_TerminationWatchingDA) async throws {
+  try await da.test() // ok
+  da.terminated(da: "the terminated func is not distributed") // expected-error{{only 'distributed' instance methods can be called on a potentially remote distributed actor}}
+}
+
+func test_watchingDA<WDA: TerminationWatchingDA>(da: WDA) async throws {
+  try await da.terminated(da: "the terminated func is not distributed")
+  // expected-error@-1{{only 'distributed' instance methods can be called on a potentially remote distributed actor}}
+  // expected-warning@-2{{no calls to throwing functions occur within 'try' expression}}
+
+  let __secretlyKnownToBeLocal = da
+  await __secretlyKnownToBeLocal.terminated(da: "local calls are okey!") // OK
+  await da.whenLocal { __secretlyKnownToBeLocal in
+    await __secretlyKnownToBeLocal.terminated(da: "local calls are okey!") // OK
+  }
+}
+
+func test_watchingDA_erased(da: DA_TerminationWatchingDA) async throws {
+  let wda: any TerminationWatchingDA = da
+  try await wda.terminated(da: "the terminated func is not distributed")
+  // expected-error@-1{{only 'distributed' instance methods can be called on a potentially remote distributed actor}}
+  // expected-warning@-2{{no calls to throwing functions occur within 'try' expression}}
+
+  let __secretlyKnownToBeLocal = wda
+  await __secretlyKnownToBeLocal.terminated(da: "local calls are okey!") // OK
+  await wda.whenLocal { __secretlyKnownToBeLocal in
+    await __secretlyKnownToBeLocal.terminated(da: "local calls are okey!") // OK
+  }
+}
+
+func test_watchingDA_any(da: any TerminationWatchingDA) async throws {
+  try await da.terminated(da: "the terminated func is not distributed")
+  // expected-error@-1{{only 'distributed' instance methods can be called on a potentially remote distributed actor}}
+  // expected-warning@-2{{no calls to throwing functions occur within 'try' expression}}
+}
+
 // ==== ------------------------------------------------------------------------
 // MARK: Error cases
 
 protocol ErrorCases: DistributedActor {
-  distributed func unexpectedAsyncThrows() -> String
-  // expected-note@-1{{protocol requires function 'unexpectedAsyncThrows()' with type '() -> String'; do you want to add a stub?}}
+  distributed func unexpectedAsyncThrows() -> String // FIXME(distributed): rdar://95949498 currently we are limited to explicitly 'async throws' protocol requirements that are distributed funcs
+  // expected-error@-1{{'distributed' protocol requirement 'unexpectedAsyncThrows()' must currently be declared explicitly 'async throws'}}
+  // expected-note@-2{{protocol requires function 'unexpectedAsyncThrows()' with type '() -> String'; do you want to add a stub?}}
 }
 
 distributed actor BadGreeter: ErrorCases {

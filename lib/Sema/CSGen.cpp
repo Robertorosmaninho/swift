@@ -1301,7 +1301,7 @@ namespace {
                            ctx.Id_Regex.str());
         return Type();
       }
-      SmallVector<TupleTypeElt, 4> matchElements {ctx.getSubstringType()};
+      SmallVector<TupleTypeElt, 4> matchElements;
       if (decodeRegexCaptureTypes(ctx,
                                   E->getSerializedCaptureStructure(),
                                   /*atomType*/ ctx.getSubstringType(),
@@ -1310,6 +1310,7 @@ namespace {
                            diag::regex_capture_types_failed_to_decode);
         return Type();
       }
+      assert(!matchElements.empty() && "Should have decoded at least an atom");
       if (matchElements.size() == 1)
         return BoundGenericStructType::get(
             regexDecl, Type(), matchElements.front().getType());
@@ -1557,7 +1558,7 @@ namespace {
       auto &ctx = CS.getASTContext();
       auto typeOperation = getTypeOperation(expr, ctx);
       if (typeOperation != TypeOperation::None)
-        return ctx.TheAnyType;
+        return ctx.getAnyExistentialType();
 
       // If this is `Builtin.trigger_fallback_diagnostic()`, fail
       // without producing any diagnostics, in order to test fallback error.
@@ -1900,7 +1901,7 @@ namespace {
 
       // The array element type defaults to 'Any'.
       CS.addConstraint(ConstraintKind::Defaultable, arrayElementTy,
-                       CS.getASTContext().TheAnyType, locator);
+                       CS.getASTContext().getAnyExistentialType(), locator);
 
       return arrayTy;
     }
@@ -2064,7 +2065,7 @@ namespace {
       // The dictionary value type defaults to 'Any'.
       if (dictionaryValueTy->isTypeVariableOrMember()) {
         CS.addConstraint(ConstraintKind::Defaultable, dictionaryValueTy,
-                         ctx.TheAnyType, locator);
+                         ctx.getAnyExistentialType(), locator);
       }
 
       return dictionaryTy;
@@ -3612,7 +3613,7 @@ namespace {
           llvm_unreachable("Unexpected result from join - it should not have been computable!");
 
         // The return value is unimportant.
-        return MetatypeType::get(ctx.TheAnyType)->getCanonicalType();
+        return MetatypeType::get(ctx.getAnyExistentialType())->getCanonicalType();
       }
       }
       llvm_unreachable("unhandled operation");
@@ -3943,8 +3944,20 @@ generateForEachStmtConstraints(
     forEachStmtInfo.makeIteratorVar = PB;
 
     // Type of sequence expression has to conform to Sequence protocol.
+    //
+    // Note that the following emulates having `$generator` separately
+    // type-checked by introducing a `TVO_PrefersSubtypeBinding` type
+    // variable that would make sure that result of `.makeIterator` would
+    // get ranked standalone.
     {
-      cs.addConstraint(ConstraintKind::ConformsTo, cs.getType(sequenceExpr),
+      auto *externalIteratorType = cs.createTypeVariable(
+          cs.getConstraintLocator(sequenceExpr), TVO_PrefersSubtypeBinding);
+
+      cs.addConstraint(ConstraintKind::Equal, externalIteratorType,
+                       cs.getType(sequenceExpr),
+                       externalIteratorType->getImpl().getLocator());
+
+      cs.addConstraint(ConstraintKind::ConformsTo, externalIteratorType,
                        sequenceProto->getDeclaredInterfaceType(),
                        contextualLocator);
 
