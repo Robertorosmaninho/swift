@@ -44,6 +44,8 @@
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/SourceManager.h"
 #include "SwiftToClangInteropContext.h"
+#include "swift/AST/ASTWalker.h"
+#include "swift/AST/TypeRepr.h"
 
 using namespace swift;
 using namespace swift::objc_translation;
@@ -443,13 +445,28 @@ private:
     outOfLineDefinitions.clear();
   }
 
+  void visitEnumErrorDecl(EnumDecl *ED) {
+    auto EnumErrorName = ED->getDeclaredType().getString();
+    os << "class "<< EnumErrorName << " : public std::exception {\n";
+    os << "};\n";
+
+    for (auto enumCase : ED->getAllCases()) {
+      for (auto elemEnumCase : enumCase->getElements()) {
+        auto EnumErrorCaseName = elemEnumCase->getNameStr();
+        os << "class " << EnumErrorCaseName << " : public " << EnumErrorName << " {\n";
+        os << "  const char* what() const throw() {\n";
+        os << "    return \"" << EnumErrorName << "." << EnumErrorCaseName << "\";\n";
+        os << "  }\n";
+        os << "} " << EnumErrorCaseName << ";\n";
+      }
+    }
+  }
+
   void visitEnumDecl(EnumDecl *ED) {
     printDocumentationComment(ED);
 
-    if (outputLang == OutputLanguageMode::Cxx) {
-      visitEnumDeclCxx(ED);
-      return;
-    }
+    if (!ED->hasRawType())
+      return visitEnumErrorDecl(ED);
 
     os << "typedef ";
     StringRef customName = getNameForObjC(ED, CustomNamesOnly);
@@ -1049,7 +1066,35 @@ private:
                          .getFunctionABIAdditionalParams(FD);
     if (funcTy->isThrowing() && !ABIparams.empty())
       convertABIAdditionalParams(FD, resultTy, ABIparams, additionalParams);
+    owningPrinter.interopContext.getIrABIDetails().setErrorCases(FD);
+    class Walker : public ASTWalker {
+      CollectedOpaqueReprs &Reprs;
 
+    public:
+      explicit Walker(CollectedOpaqueReprs &reprs) : Reprs(reprs) {}
+
+      bool walkToTypeReprPre(TypeRepr *repr) override {
+        if (auto opaqueRepr = dyn_cast<OpaqueReturnTypeRepr>(repr))
+          Reprs.push_back(opaqueRepr);
+        return true;
+      }
+    };
+
+   /* for (auto elem : FD->getBody()->getElements()) {
+      if (elem.isStmt(StmtKind::Throw)){
+
+      }
+    }*/
+
+    if (funcTy->isThrowing() && !ABIparams.empty()) {
+      if (ABIparams.pop_back_val().role ==
+          IRABIDetailsProvider::ABIAdditionalParam::ABIParameterRole::Self)
+        additionalParams.push_back(
+            {DeclAndTypeClangFunctionPrinter::AdditionalParam::Role::Self,
+             resultTy->getASTContext().getOpaquePointerType(),
+             /*isIndirect=*/
+             isa<FuncDecl>(FD) ? cast<FuncDecl>(FD)->isMutating() : false});
+    }
     funcPrinter.printFunctionSignature(
         FD, FD->getName().getBaseIdentifier().get(), resultTy,
         DeclAndTypeClangFunctionPrinter::FunctionSignatureKind::CxxInlineThunk);

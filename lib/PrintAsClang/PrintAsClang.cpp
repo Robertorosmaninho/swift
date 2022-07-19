@@ -325,6 +325,7 @@ static void writePrologue(raw_ostream &out, ASTContext &ctx,
   emitCxxConditional(
       out, [&] { emitMacro("SWIFT_NOEXCEPT", "noexcept"); },
       [&] { emitMacro("SWIFT_NOEXCEPT"); });
+  //emitCxxConditional(out, [&] { out << "#include <exception>\n"; });
   emitCxxConditional(out, [&] {
     out << "#if !defined(SWIFT_CXX_INT_DEFINED)\n";
     out << "#define SWIFT_CXX_INT_DEFINED\n";

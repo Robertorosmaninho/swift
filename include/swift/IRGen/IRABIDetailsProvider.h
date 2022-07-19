@@ -113,6 +113,9 @@ public:
   SmallVector<ABIAdditionalParam, 1>
   getFunctionABIAdditionalParams(AbstractFunctionDecl *fd);
 
+  void setErrorCases(AbstractFunctionDecl *afd);
+  SmallVector<EnumElementDecl *> getErrorCases();
+
 private:
   std::unique_ptr<IRABIDetailsProviderImpl> impl;
 };

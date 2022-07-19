@@ -305,7 +305,7 @@ void DeclAndTypeClangFunctionPrinter::printFunctionSignature(
         }
       } else if (param.role ==  AdditionalParam::Role::Error) {
         os << "SWIFT_ERROR_RESULT ";
-        os << "void ** _error";
+        os << "void ** _Nullable _error";
       }
     });
   }
@@ -445,10 +445,15 @@ void DeclAndTypeClangFunctionPrinter::printCxxThunkBody(
   printCallToCFunc(/*additionalParam=*/None);
   os << ";\n";
 
-  // Create the condition and the statement to throw an exception.
+  // Throw C++ exceptions if some
   if (hasThrows) {
-    os << "  if (opaqueError != nullptr)\n";
-    os << "    throw (swift::_impl::NaiveException(\"Exception\"));\n";
+    auto errorCases = interopContext.getIrABIDetails().getErrorCases();
+    if (!errorCases.empty()) {
+      for (auto throwCase : errorCases) {
+        os << "  if (opaqueError != nullptr)\n";
+        os << "    throw " << throwCase->getNameStr() << ";\n";
+      }
+    }
   }
 
   // Return the function result value if it doesn't throw.
@@ -456,6 +461,7 @@ void DeclAndTypeClangFunctionPrinter::printCxxThunkBody(
     os << "\n";
     os << "return returnValue;\n";
   }
+
 }
 
 void DeclAndTypeClangFunctionPrinter::printCxxMethod(

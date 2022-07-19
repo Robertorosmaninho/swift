@@ -482,30 +482,33 @@ public:
     printer.print(ED);
     return true;
   }
-  
+
   bool writeEnum(const EnumDecl *ED) {
     if (addImport(ED))
       return true;
-    
+
     if (seenTypes[ED].first == EmissionState::Defined)
       return true;
-    
+
     seenTypes[ED] = {EmissionState::Defined, true};
     printer.print(ED);
 
     ASTContext &ctx = M.getASTContext();
 
-    SmallVector<ProtocolConformance *, 1> conformances;
-    auto errorTypeProto = ctx.getProtocol(KnownProtocolKind::Error);
-    if (ED->lookupConformance(errorTypeProto, conformances)) {
-      bool hasDomainCase = std::any_of(ED->getAllElements().begin(),
-                                       ED->getAllElements().end(),
-                                       [](const EnumElementDecl *elem) {
-        return elem->getBaseIdentifier().str() == "Domain";
-      });
-      if (!hasDomainCase) {
-        os << "static NSString * _Nonnull const " << getNameForObjC(ED)
-           << "Domain = @\"" << getErrorDomainStringForObjC(ED) << "\";\n";
+    if (outputLangMode == OutputLanguageMode::ObjC) {
+      SmallVector<ProtocolConformance *, 1> conformances;
+      auto errorTypeProto = ctx.getProtocol(KnownProtocolKind::Error);
+      if (ED->lookupConformance(errorTypeProto, conformances)) {
+        bool hasDomainCase = std::any_of(
+            ED->getAllElements().begin(), ED->getAllElements().end(),
+            [](const EnumElementDecl *elem) {
+              llvm::errs() << elem->getNameStr() << "\n";
+              return elem->getBaseIdentifier().str() == "Domain";
+            });
+        if (!hasDomainCase) {
+          os << "static NSString * _Nonnull const " << getNameForObjC(ED)
+             << "Domain = @\"" << getErrorDomainStringForObjC(ED) << "\";\n";
+        }
       }
     }
 
@@ -515,6 +518,9 @@ public:
   void write() {
     SmallVector<Decl *, 64> decls;
     M.getTopLevelDecls(decls);
+
+   // for (auto decl : decls)
+   //   decl->dump();
 
     auto newEnd = std::remove_if(decls.begin(), decls.end(),
                                  [this](const Decl *D) -> bool {
@@ -610,6 +616,8 @@ public:
           success = writeFunc(FD);
         if (auto SD = dyn_cast<StructDecl>(D))
           success = writeStruct(SD);
+        if (auto ED = dyn_cast<EnumDecl>(D))
+          success = writeEnum(ED);
         // FIXME: Warn on unsupported exported decl.
       } else if (isa<ValueDecl>(D)) {
         if (auto CD = dyn_cast<ClassDecl>(D))

@@ -8,12 +8,26 @@
 
 // CHECK-LABEL: namespace _impl {
 
-// CHECK: SWIFT_EXTERN void $s9Functions18emptyThrowFunctionyyKF(SWIFT_CONTEXT void * _Nonnull _self, SWIFT_ERROR_RESULT void ** _error) SWIFT_CALL; // emptyThrowFunction()
-// CHECK: SWIFT_EXTERN void $s9Functions13throwFunctionyyKF(SWIFT_CONTEXT void * _Nonnull _self, SWIFT_ERROR_RESULT void ** _error) SWIFT_CALL; // throwFunction()
+// CHECK: SWIFT_EXTERN void $s9Functions18emptyThrowFunctionyyKF(SWIFT_CONTEXT void * _Nonnull _self, SWIFT_ERROR_RESULT void ** _Nullable _error) SWIFT_CALL; // emptyThrowFunction()
+// CHECK: SWIFT_EXTERN void $s9Functions13throwFunctionyyKF(SWIFT_CONTEXT void * _Nonnull _self, SWIFT_ERROR_RESULT void ** _Nullable _error) SWIFT_CALL; // throwFunction()
 
 // CHECK: }
 
-enum NaiveErrors : Error {
+// CHECK: class NaiveErrors : public std::exception {
+// CHECK: };
+// CHECK: class returnError : public NaiveErrors {
+// CHECK: virtual const char* what() const throw() {
+// CHECK: return "NaiveErrors.returnError";
+// CHECK: }
+// CHECK: } returnError;
+
+// CHECK: class throwError : public NaiveErrors {
+// CHECK: virtual const char* what() const throw() {
+// CHECK: return "NaiveErrors.throwError";
+// CHECK: }
+// CHECK: } throwError;
+
+public enum NaiveErrors : Error {
     case returnError
     case throwError
 }
@@ -36,9 +50,9 @@ public func throwFunction() throws {
 // CHECK: inline void throwFunction() {
 // CHECK: void* opaqueError = nullptr;
 // CHECK: void* self = nullptr;
-// CHECK: _impl::$s9Functions13throwFunctionyyKF(self, &opaqueError);
+// CHECK: return _impl::$s9Functions13throwFunctionyyKF(self, &opaqueError);
 // CHECK: if (opaqueError != nullptr)
-// CHECK: throw (swift::_impl::NaiveException("Exception"));
+// CHECK: throw throwError;
 // CHECK: }
 
 public func throwFunctionWithReturn() throws -> Int {
@@ -52,6 +66,6 @@ public func throwFunctionWithReturn() throws -> Int {
 // CHECK: void* self = nullptr;
 // CHECK: auto returnValue = _impl::$s9Functions23throwFunctionWithReturnSiyKF(self, &opaqueError);
 // CHECK: if (opaqueError != nullptr)
-// CHECK: throw (swift::_impl::NaiveException("Exception"));
+// CHECK: throw returnError;
 // CHECK: return returnValue;
 // CHECK: }

@@ -20,6 +20,7 @@
 #include "NativeConventionSchema.h"
 
 #include "swift/AST/ASTContext.h"
+#include "swift/AST/ASTMangler.h"
 #include "swift/AST/IRGenOptions.h"
 #include "swift/AST/Types.h"
 #include "swift/SIL/SILFunctionBuilder.h"
@@ -144,7 +145,7 @@ public:
     llvm::SmallVector<IRABIDetailsProvider::ABIAdditionalParam, 1> params;
 
     auto function = SILFunction::getFunction(SILDeclRef(afd), *silMod);
-
+    function->begin()->dump();
     auto silFuncType = function->getLoweredFunctionType();
     auto funcPointerKind =
         FunctionPointerKind(FunctionPointerKind::BasicKind::Function);
@@ -163,6 +164,34 @@ public:
     return params;
   }
 
+  llvm::SmallVector<EnumElementDecl*> getErrorCases() {
+    return errorCases;
+  }
+
+  void setErrorCases(AbstractFunctionDecl *afd) {
+    Mangle::ASTMangler mangler;
+
+    auto mangledName = mangler.mangleAnyDecl(afd, /*prefix=*/true);
+    for (auto &f : silMod->getFunctions())
+      if (f.getName() == mangledName && afd->hasThrows())
+        for (auto &bb : f)
+          for (auto &inst : bb)
+            if (auto *enumInst = dyn_cast<EnumInst>(&inst)) {
+              EnumType *enumType = enumInst->getType().getAs<EnumType>();
+              SmallVector<ProtocolConformance *, 1> conformances;
+              auto errorTypeProto =
+                  silMod->getASTContext().getProtocol(KnownProtocolKind::Error);
+              if (enumType->getDecl()->lookupConformance(errorTypeProto,
+                                                         conformances)) {
+                unsigned int i = 0;
+                for (auto enumCase : enumType->getDecl()->getAllCases()) {
+                  if (i == enumInst->getCaseIndex())
+                    errorCases.push_back(enumCase->getElements()[0]);
+                  i++;
+                }
+              }
+            }
+  }
 private:
   Lowering::TypeConverter typeConverter;
   // Default silOptions are sufficient, as we don't need to generated SIL.
@@ -170,6 +199,7 @@ private:
   std::unique_ptr<SILModule> silMod;
   IRGenerator IRGen;
   IRGenModule IGM;
+  llvm::SmallVector<EnumElementDecl*> errorCases;
 };
 
 } // namespace swift
@@ -213,4 +243,11 @@ IRABIDetailsProvider::getTypeMetadataAccessFunctionSignature() {
 llvm::MapVector<EnumElementDecl *, unsigned>
 IRABIDetailsProvider::getEnumTagMapping(EnumDecl *ED) {
   return impl->getEnumTagMapping(ED);
+}
+
+void IRABIDetailsProvider::setErrorCases(AbstractFunctionDecl *afd) {
+  return impl->setErrorCases(afd);
+}
+SmallVector<EnumElementDecl *> IRABIDetailsProvider::getErrorCases() {
+  return impl->getErrorCases();
 }

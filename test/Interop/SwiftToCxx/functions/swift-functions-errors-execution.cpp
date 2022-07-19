@@ -40,6 +40,6 @@ int main() {
 
 // CHECK: passEmptyThrowFunction
 // CHECK-NEXT: passThrowFunction
-// CHECK-NEXT: Exception
+// CHECK-NEXT: NaiveErrors.throwError
 // CHECK-NEXT: passThrowFunctionWithReturn
-// CHECK-NEXT: Exception
+// CHECK-NEXT: NaiveErrors.returnError
